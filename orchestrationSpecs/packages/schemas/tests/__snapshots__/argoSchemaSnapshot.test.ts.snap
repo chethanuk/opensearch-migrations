@@ -823,6 +823,10 @@ exports[`test schemas matches expected argo schema matches expected 1`] = `
                             "type": "number",
                             "default": 1
                           },
+                          "statusCheckRetryLimit": {
+                            "type": "number",
+                            "default": 900
+                          },
                           "jvmArgs": {
                             "type": "string",
                             "default": ""
@@ -2187,6 +2191,11 @@ exports[`test schemas matches expected argo user matches expected 1`] = `
                         "type": "number",
                         "default": 1,
                         "description": "Number of RFS (Reindex From Snapshot) pod replicas. Each replica processes shards independently."
+                      },
+                      "statusCheckRetryLimit": {
+                        "type": "number",
+                        "default": 900,
+                        "description": "Maximum number of workflow-level status checks while waiting for RFS document backfill to finish. Checks use bounded exponential backoff (5s doubling up to a 5 minute cap), so the default of 900 keeps long-running single-replica migrations bounded but avoids giving up after 200 polls."
                       },
                       "jvmArgs": {
                         "type": "string",

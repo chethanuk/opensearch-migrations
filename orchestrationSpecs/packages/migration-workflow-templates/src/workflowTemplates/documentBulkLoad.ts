@@ -286,6 +286,7 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
         .addRequiredInput("targetK8sLabel", typeToken<string>())
         .addRequiredInput("snapshotK8sLabel", typeToken<string>())
         .addRequiredInput("fromSnapshotMigrationK8sLabel", typeToken<string>())
+        .addOptionalInput("statusCheckRetryLimit", c => 900)
         .addOptionalInput("taskK8sLabel", c => "reindexFromSnapshotStatusCheck")
         .addInputsFromRecord(makeRequiredImageParametersForKeys(["MigrationConsole"]))
         .addSteps(b => b
@@ -296,7 +297,7 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
                 }))
         )
         .addRetryParameters({
-            limit: "200",
+            limit: makeStringTypeProxy("{{inputs.parameters.statusCheckRetryLimit}}"),
             retryPolicy: "Always",
             backoff: {duration: "5", factor: "2", cap: "300"}
         })
@@ -309,6 +310,7 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
         .addRequiredInput("targetK8sLabel", typeToken<string>())
         .addRequiredInput("snapshotK8sLabel", typeToken<string>())
         .addRequiredInput("fromSnapshotMigrationK8sLabel", typeToken<string>())
+        .addOptionalInput("statusCheckRetryLimit", c => 900)
         .addOptionalInput("groupName_view", c => "checks")
         .addInputsFromRecord(makeRequiredImageParametersForKeys(["MigrationConsole"]))
         .addSteps(b => b
@@ -320,7 +322,8 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
                     sourceK8sLabel: b.inputs.sourceK8sLabel,
                     targetK8sLabel: b.inputs.targetK8sLabel,
                     snapshotK8sLabel: b.inputs.snapshotK8sLabel,
-                    fromSnapshotMigrationK8sLabel: b.inputs.fromSnapshotMigrationK8sLabel
+                    fromSnapshotMigrationK8sLabel: b.inputs.fromSnapshotMigrationK8sLabel,
+                    statusCheckRetryLimit: b.inputs.statusCheckRetryLimit
                 }))
         )
     )
@@ -443,6 +446,7 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
                 c.register({
                     ...selectInputsForRegister(b, c),
                     configContents: c.steps.setupWaitForCompletion.outputs.configContents,
+                    statusCheckRetryLimit: expr.dig(expr.deserializeRecord(b.inputs.documentBackfillConfig), ["statusCheckRetryLimit"], 900),
                     sourceK8sLabel: b.inputs.sourceLabel,
                     targetK8sLabel: expr.jsonPathStrict(b.inputs.targetConfig, "label"),
                     snapshotK8sLabel: expr.jsonPathStrict(b.inputs.snapshotConfig, "label"),
