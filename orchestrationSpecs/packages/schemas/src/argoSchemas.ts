@@ -151,6 +151,7 @@ export const ARGO_RFS_OPTIONS = makeOptionalDefaultedFieldsRequired(
 );
 export const ARGO_RFS_WORKFLOW_OPTION_KEYS = getZodKeys(ARGO_RFS_OPTIONS.pick({
     podReplicas: true,
+    statusCheckRetryLimit: true,
     jvmArgs: true,
     loggingConfigurationOverrideConfigMap: true,
     useTargetClusterForWorkCoordination: true,

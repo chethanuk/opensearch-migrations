@@ -532,9 +532,14 @@ export const USER_METADATA_OPTIONS = z.object({
     ...USER_METADATA_PROCESS_OPTIONS.shape,
 });
 
+export const DEFAULT_STATUS_CHECK_RETRY_LIMIT = 900;
+
 export const USER_RFS_WORKFLOW_OPTIONS = z.object({
     podReplicas: z.number().default(1).optional()
         .describe("Number of RFS (Reindex From Snapshot) pod replicas. Each replica processes shards independently."),
+    statusCheckRetryLimit: z.number().default(DEFAULT_STATUS_CHECK_RETRY_LIMIT).optional()
+        .describe("Maximum number of workflow-level status checks while waiting for RFS document backfill to finish. " +
+            `Checks use bounded exponential backoff (5s doubling up to a 5 minute cap), so the default of ${DEFAULT_STATUS_CHECK_RETRY_LIMIT} keeps long-running single-replica migrations bounded but avoids giving up after 200 polls.`),
     jvmArgs: z.string().default("").optional()
         .describe(JVM_ARGS_DESC),
     loggingConfigurationOverrideConfigMap: z.string().default("").optional()
