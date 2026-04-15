@@ -7,6 +7,7 @@ import {
     ResourceRequirementsType,
     ARGO_RFS_OPTIONS,
     ARGO_RFS_WORKFLOW_OPTION_KEYS,
+    DEFAULT_STATUS_CHECK_RETRY_LIMIT,
 } from "@opensearch-migrations/schemas";
 import {MigrationConsole} from "./migrationConsole";
 
@@ -286,7 +287,7 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
         .addRequiredInput("targetK8sLabel", typeToken<string>())
         .addRequiredInput("snapshotK8sLabel", typeToken<string>())
         .addRequiredInput("fromSnapshotMigrationK8sLabel", typeToken<string>())
-        .addOptionalInput("statusCheckRetryLimit", c => 900)
+        .addOptionalInput("statusCheckRetryLimit", c => DEFAULT_STATUS_CHECK_RETRY_LIMIT)
         .addOptionalInput("taskK8sLabel", c => "reindexFromSnapshotStatusCheck")
         .addInputsFromRecord(makeRequiredImageParametersForKeys(["MigrationConsole"]))
         .addSteps(b => b
@@ -310,7 +311,7 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
         .addRequiredInput("targetK8sLabel", typeToken<string>())
         .addRequiredInput("snapshotK8sLabel", typeToken<string>())
         .addRequiredInput("fromSnapshotMigrationK8sLabel", typeToken<string>())
-        .addOptionalInput("statusCheckRetryLimit", c => 900)
+        .addOptionalInput("statusCheckRetryLimit", c => DEFAULT_STATUS_CHECK_RETRY_LIMIT)
         .addOptionalInput("groupName_view", c => "checks")
         .addInputsFromRecord(makeRequiredImageParametersForKeys(["MigrationConsole"]))
         .addSteps(b => b
@@ -446,7 +447,11 @@ export const DocumentBulkLoad = WorkflowBuilder.create({
                 c.register({
                     ...selectInputsForRegister(b, c),
                     configContents: c.steps.setupWaitForCompletion.outputs.configContents,
-                    statusCheckRetryLimit: expr.dig(expr.deserializeRecord(b.inputs.documentBackfillConfig), ["statusCheckRetryLimit"], 900),
+                    statusCheckRetryLimit: expr.dig(
+                        expr.deserializeRecord(b.inputs.documentBackfillConfig),
+                        ["statusCheckRetryLimit"],
+                        DEFAULT_STATUS_CHECK_RETRY_LIMIT,
+                    ),
                     sourceK8sLabel: b.inputs.sourceLabel,
                     targetK8sLabel: expr.jsonPathStrict(b.inputs.targetConfig, "label"),
                     snapshotK8sLabel: expr.jsonPathStrict(b.inputs.snapshotConfig, "label"),

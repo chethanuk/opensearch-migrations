@@ -1,4 +1,5 @@
 import { renderWorkflowTemplate } from "@opensearch-migrations/argo-workflow-builders";
+import { DEFAULT_STATUS_CHECK_RETRY_LIMIT } from "@opensearch-migrations/schemas";
 
 import { DocumentBulkLoad } from "../src/workflowTemplates/documentBulkLoad";
 
@@ -12,7 +13,7 @@ describe("document bulk load wait-for-completion retry limit", () => {
         expect(waitTemplate?.retryStrategy?.limit).toBe("{{inputs.parameters.statusCheckRetryLimit}}");
         expect(waitTemplate?.inputs?.parameters).toEqual(
             expect.arrayContaining([
-                expect.objectContaining({ name: "statusCheckRetryLimit", value: "900" })
+                expect.objectContaining({ name: "statusCheckRetryLimit", value: `${DEFAULT_STATUS_CHECK_RETRY_LIMIT}` })
             ])
         );
     });
@@ -25,7 +26,7 @@ describe("document bulk load wait-for-completion retry limit", () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     name: "statusCheckRetryLimit",
-                    value: "{{=sprig.dig('statusCheckRetryLimit', 900, fromJSON(inputs.parameters.documentBackfillConfig))}}"
+                    value: `{{=sprig.dig('statusCheckRetryLimit', ${DEFAULT_STATUS_CHECK_RETRY_LIMIT}, fromJSON(inputs.parameters.documentBackfillConfig))}}`
                 })
             ])
         );
