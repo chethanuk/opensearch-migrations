@@ -108,7 +108,7 @@ def submit_command(ctx, namespace, wait, timeout, wait_interval, session):
     store = WorkflowConfigStore(namespace=namespace)
     stored_config = store.load_config(session_name=session)
 
-    if stored_config is None or not stored_config.data:
+    if stored_config is None:
         click.echo(
             f"Error: No workflow configuration found for session '{session}'", err=True
         )
@@ -117,8 +117,18 @@ def submit_command(ctx, namespace, wait, timeout, wait_interval, session):
             err=True,
         )
         ctx.exit(ExitCode.FAILURE.value)
+        return
 
-    assert stored_config is not None
+    if not stored_config.data:
+        click.echo(
+            f"Error: No workflow configuration found for session '{session}'", err=True
+        )
+        click.echo(
+            "\nPlease configure the workflow first using 'workflow configure edit'",
+            err=True,
+        )
+        ctx.exit(ExitCode.FAILURE.value)
+        return
 
     click.echo(
         "NOT checking if all secrets have been created.  Run `workflow configure edit` to confirm"
@@ -172,8 +182,6 @@ def submit_command(ctx, namespace, wait, timeout, wait_interval, session):
             ctx.exit(ExitCode.FAILURE.value)
         except subprocess.CalledProcessError as e:
             click.echo("Error submitting workflow: submission script failed.", err=True)
-            if e.stderr:
-                click.echo(f"stderr: {e.stderr.strip()}", err=True)
             if e.stdout:
                 click.echo(f"stdout: {e.stdout.strip()}", err=True)
             click.echo(
