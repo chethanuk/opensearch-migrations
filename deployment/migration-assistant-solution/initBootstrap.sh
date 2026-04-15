@@ -6,9 +6,15 @@ script_dir=$(dirname "${BASH_SOURCE[0]}")
 SCRIPT_DIR=$(cd "$script_dir" && pwd)
 unset script_dir
 readonly SCRIPT_DIR
-readonly REPO_ROOT="$SCRIPT_DIR"
+if [[ "$(basename "$SCRIPT_DIR")" == "migration-assistant-solution" ]] && [[ "$(basename "$(dirname "$SCRIPT_DIR")")" == "deployment" ]]; then
+  readonly REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+else
+  readonly REPO_ROOT="$SCRIPT_DIR"
+fi
 readonly MIGRATIONS_REPO_URL="${OPENSEARCH_MIGRATIONS_GIT_URL:-https://github.com/opensearch-project/opensearch-migrations.git}"
 readonly MIGRATIONS_BOOTSTRAP_DIR="deployment/cdk/opensearch-service-migration"
+readonly RELEASE_LOOKUP_TIMEOUT_SECONDS=20
+readonly AWS_CDK_VERSION="2.x"
 
 usage() {
   echo "Usage: $0 [--tag <tag_name>] [--branch <branch_name>]"
@@ -68,9 +74,17 @@ resolve_branch_ref() {
 
 get_latest_release_tag() {
   local latest_release_tag
-  latest_release_tag=$(curl -fsSL https://api.github.com/repos/opensearch-project/opensearch-migrations/releases/latest | jq -er '.tag_name') || \
+  latest_release_tag=$(curl --connect-timeout 5 --max-time "$RELEASE_LOOKUP_TIMEOUT_SECONDS" -fsSL https://api.github.com/repos/opensearch-project/opensearch-migrations/releases/latest | jq -er '.tag_name') || \
     fail "Unable to determine the latest release tag from GitHub."
   printf '%s\n' "$latest_release_tag"
+}
+
+escape_for_sed_replacement() {
+  local raw_value="$1"
+  raw_value=${raw_value//\\/\\\\}
+  raw_value=${raw_value//&/\\&}
+  raw_value=${raw_value//|/\\|}
+  printf '%s\n' "$raw_value"
 }
 
 validate_required_bootstrap_paths_in_ref() {
@@ -185,13 +199,17 @@ main() {
   cd "$bootstrap_dir"
 
   if [[ -n "${VPC_ID:-}" ]]; then
-    sed -i "s|<VPC_ID>|$VPC_ID|g" "$bootstrap_dir/cdk.context.json"
+    local escaped_vpc_id
+    escaped_vpc_id=$(escape_for_sed_replacement "$VPC_ID")
+    sed -i "s|<VPC_ID>|$escaped_vpc_id|g" "$bootstrap_dir/cdk.context.json"
   fi
   if [[ -n "${STAGE:-}" ]]; then
-    sed -i "s|<STAGE>|$STAGE|g" "$bootstrap_dir/cdk.context.json"
+    local escaped_stage
+    escaped_stage=$(escape_for_sed_replacement "$STAGE")
+    sed -i "s|<STAGE>|$escaped_stage|g" "$bootstrap_dir/cdk.context.json"
   fi
 
-  npm install -g aws-cdk 2>&1
+  npm install -g "aws-cdk@${AWS_CDK_VERSION}" 2>&1
   npm install 2>&1
   ./buildDockerImages.sh
 }

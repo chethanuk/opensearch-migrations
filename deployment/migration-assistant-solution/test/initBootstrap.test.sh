@@ -196,8 +196,46 @@ test_branch_checkout_preserves_branch_bootstrap_flow() {
   assert_equals "main" "$current_branch"
 }
 
-test_invalid_tag_reports_clear_error
-test_valid_tag_checkout_uses_tag_ref_without_pathspec_errors
-test_missing_bootstrap_path_reports_clear_error
-test_branch_checkout_preserves_branch_bootstrap_flow
+TOTAL_TESTS=0
+PASSED_TESTS=0
+FAILED_TESTS=0
+SUITE_START_TIME=$(date +%s)
+
+run_test() {
+  local test_name="$1"
+  local test_start_time
+  local test_end_time
+  local test_duration
+
+  TOTAL_TESTS=$((TOTAL_TESTS + 1))
+  test_start_time=$(date +%s)
+
+  if "$test_name"; then
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    test_end_time=$(date +%s)
+    test_duration=$((test_end_time - test_start_time))
+    echo "✓ $test_name (${test_duration}s)"
+  else
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    test_end_time=$(date +%s)
+    test_duration=$((test_end_time - test_start_time))
+    echo "✗ $test_name (${test_duration}s)"
+  fi
+}
+
+echo "Running initBootstrap.sh tests..."
+run_test test_invalid_tag_reports_clear_error
+run_test test_valid_tag_checkout_uses_tag_ref_without_pathspec_errors
+run_test test_missing_bootstrap_path_reports_clear_error
+run_test test_branch_checkout_preserves_branch_bootstrap_flow
+
+SUITE_END_TIME=$(date +%s)
+SUITE_DURATION=$((SUITE_END_TIME - SUITE_START_TIME))
+
+echo "initBootstrap.sh test summary: total=${TOTAL_TESTS}, passed=${PASSED_TESTS}, failed=${FAILED_TESTS}, duration=${SUITE_DURATION}s"
+
+if [[ $FAILED_TESTS -ne 0 ]]; then
+  exit 1
+fi
+
 echo "initBootstrap.sh tests passed"
