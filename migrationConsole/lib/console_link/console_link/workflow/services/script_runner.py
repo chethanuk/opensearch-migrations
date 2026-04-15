@@ -11,6 +11,11 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 SAMPLE_CONFIG_PATH_ENV = "MIGRATION_SAMPLE_CONFIG_PATH"
+MAX_SUBMISSION_OUTPUT_CHARS = 500
+
+
+class WorkflowSubmissionError(ValueError):
+    """Raised when workflow submission output cannot be interpreted safely."""
 
 
 class ScriptRunner:
@@ -25,7 +30,7 @@ class ScriptRunner:
                        Raises ValueError if neither is provided or if the directory doesn't exist.
         """
         if script_dir is None:
-            config_processor_dir = os.environ.get('CONFIG_PROCESSOR_DIR')
+            config_processor_dir = os.environ.get("CONFIG_PROCESSOR_DIR")
             if not config_processor_dir:
                 raise ValueError(
                     "CONFIG_PROCESSOR_DIR environment variable must be set when script_dir is not provided"
@@ -43,11 +48,11 @@ class ScriptRunner:
         logger.debug(f"ScriptRunner initialized with script_dir: {self.script_dir}")
 
     def run(
-            self,
-            program_name: str,
-            input_data: Optional[str] = None,
-            *args: str,
-            direct_output: bool = False
+        self,
+        program_name: str,
+        input_data: Optional[str] = None,
+        *args: str,
+        direct_output: bool = False,
     ) -> str:
         """
         Run a program with standard interface.
@@ -81,7 +86,7 @@ class ScriptRunner:
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=str(self.script_dir)
+                cwd=str(self.script_dir),
             )
 
             logger.debug("Script completed successfully")
@@ -90,6 +95,7 @@ class ScriptRunner:
         except subprocess.CalledProcessError as e:
             if direct_output:
                 import sys
+
                 print(f"Script failed with exit code {e.returncode}", file=sys.stderr)
                 if e.stderr:
                     print(f"stderr: {e.stderr}", file=sys.stderr)
@@ -102,11 +108,11 @@ class ScriptRunner:
             ) from None
 
     def run_script(
-            self,
-            script_name: str,
-            input_data: Optional[str] = None,
-            *args: str,
-            direct_output: bool = False
+        self,
+        script_name: str,
+        input_data: Optional[str] = None,
+        *args: str,
+        direct_output: bool = False,
     ) -> str:
         """
         Run a script with standard interface.
@@ -124,26 +130,33 @@ class ScriptRunner:
             FileNotFoundError: If script doesn't exist
             subprocess.CalledProcessError: If script fails
         """
-        return self.run(self.script_dir / script_name, input_data, *args, direct_output=direct_output)
+        return self.run(
+            str(self.script_dir / script_name),
+            input_data,
+            *args,
+            direct_output=direct_output,
+        )
 
     def run_config_processor_node_script(
-            self,
-            processor_name: str,
-            *args: str,
-            nodejs_location: Optional[str] = None,
-            input_data: Optional[str] = None
+        self,
+        processor_name: str,
+        *args: str,
+        nodejs_location: Optional[str] = None,
+        input_data: Optional[str] = None,
     ) -> str:
         """
         Run a config processor command (aka script) through node
         """
         if nodejs_location is None:
-            nodejs_location = os.environ.get('NODEJS', 'node')
+            nodejs_location = os.environ.get("NODEJS", "node")
             if not nodejs_location:
                 raise ValueError(
                     "nodejs_location environment variable must be set when nodejs_location is not provided"
                 )
         script_entrypoint = os.path.join(self.config_processor_dir, "index.js")
-        return self.run(nodejs_location, input_data, script_entrypoint, processor_name, *args)
+        return self.run(
+            nodejs_location, input_data, script_entrypoint, processor_name, *args
+        )
 
     def _get_blank_starter_config(self) -> str:
         """Get a minimal blank starter configuration template.
@@ -171,16 +184,24 @@ class ScriptRunner:
         """
         logger.info("Getting sample configuration")
         sample_path_override = os.environ.get(SAMPLE_CONFIG_PATH_ENV)
-        sample_path = Path(sample_path_override) if sample_path_override else self.script_dir / "sample.yaml"
+        sample_path = (
+            Path(sample_path_override)
+            if sample_path_override
+            else self.script_dir / "sample.yaml"
+        )
 
         if not sample_path.exists():
-            logger.info(f"Sample configuration not found at {sample_path}, using blank starter config")
+            logger.info(
+                f"Sample configuration not found at {sample_path}, using blank starter config"
+            )
             return self._get_blank_starter_config()
 
         try:
-            with open(sample_path, 'r') as f:
+            with open(sample_path, "r") as f:
                 content = f.read()
-            logger.debug(f"Loaded sample config from {sample_path} ({len(content)} bytes)")
+            logger.debug(
+                f"Loaded sample config from {sample_path} ({len(content)} bytes)"
+            )
             return content
         except IOError as e:
             logger.error(f"Failed to read sample configuration: {e}")
@@ -212,36 +233,29 @@ class ScriptRunner:
         logger.info(f"Submitting workflow with args: {args}")
 
         # Create temporary file with config data
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as temp_file:
             temp_file.write(config_data)
             temp_file_path = temp_file.name
 
         try:
             logger.debug(f"Config file: {temp_file_path}")
-            output = self.run_script("createMigrationWorkflowFromUserConfiguration.sh", None,
-                                     *([temp_file_path] + args), direct_output=True)
+            output = self.run_script(
+                "createMigrationWorkflowFromUserConfiguration.sh",
+                None,
+                *([temp_file_path] + args),
+                direct_output=True,
+            )
 
             # Parse kubectl output to extract workflow information
             # The script should output workflow creation details
             logger.debug(f"Submission script output: {output}")
-
-            # Try to parse as JSON first (if script returns JSON)
-            try:
-                workflow_info = json.loads(output)
-                logger.info(f"Workflow submitted successfully: {workflow_info.get('workflow_name', 'unknown')}")
-                return workflow_info
-            except json.JSONDecodeError:
-                # If not JSON, parse kubectl output format
-                # Expected format: "workflow.argoproj.io/<workflow-name> created"
-                # or similar kubectl output
-                workflow_name = self._parse_kubectl_output(output)
-
-                workflow_info = {
-                    'workflow_name': workflow_name
-                }
-
-                logger.info(f"Workflow submitted successfully: {workflow_name}")
-                return workflow_info
+            workflow_info = self._parse_submission_output(output)
+            logger.info(
+                f"Workflow submitted successfully: {workflow_info.get('workflow_name', 'unknown')}"
+            )
+            return workflow_info
 
         finally:
             # Clean up temporary file
@@ -249,7 +263,50 @@ class ScriptRunner:
                 os.unlink(temp_file_path)
                 logger.debug(f"Cleaned up temporary file: {temp_file_path}")
             except OSError as e:
-                logger.warning(f"Failed to clean up temporary file {temp_file_path}: {e}")
+                logger.warning(
+                    f"Failed to clean up temporary file {temp_file_path}: {e}"
+                )
+
+    def _parse_submission_output(self, output: str) -> Dict[str, Any]:
+        """Parse submission output as JSON or kubectl-style text."""
+        stripped_output = output.strip()
+        workflow_info = self._parse_json_output(stripped_output)
+        if workflow_info is not None:
+            return workflow_info
+
+        try:
+            workflow_name = self._parse_kubectl_output(stripped_output)
+        except ValueError as exc:
+            raise WorkflowSubmissionError(
+                self._build_submission_parse_error(stripped_output)
+            ) from exc
+
+        return {"workflow_name": workflow_name}
+
+    def _parse_json_output(self, output: str) -> Optional[Dict[str, Any]]:
+        """Parse JSON output, including JSON followed by trailing logs."""
+        try:
+            workflow_info = json.loads(output)
+        except json.JSONDecodeError:
+            try:
+                workflow_info, _ = json.JSONDecoder().raw_decode(output)
+            except json.JSONDecodeError:
+                return None
+
+        return workflow_info if isinstance(workflow_info, dict) else None
+
+    def _build_submission_parse_error(self, output: str) -> str:
+        """Build an actionable error for unparseable submission output."""
+        condensed_output = " ".join(output.split())
+        if len(condensed_output) > MAX_SUBMISSION_OUTPUT_CHARS:
+            condensed_output = f"{condensed_output[:MAX_SUBMISSION_OUTPUT_CHARS]}..."
+
+        return (
+            "Submission script returned unexpected output. "
+            "The workflow may not have been created. "
+            f"Output: {condensed_output} "
+            "Check the config processor and workflow controller logs for the root cause."
+        )
 
     def _parse_kubectl_output(self, output: str) -> str:
         """Parse kubectl output to extract workflow name.
@@ -265,15 +322,17 @@ class ScriptRunner:
         """
         # Try to extract workflow name from kubectl output
         # Format: "workflow.argoproj.io/<workflow-name> created"
-        lines = output.strip().split('\n')
+        lines = output.strip().split("\n")
         for line in lines:
-            if 'workflow' in line.lower() and ('created' in line.lower() or 'submitted' in line.lower()):
+            if "workflow" in line.lower() and (
+                "created" in line.lower() or "submitted" in line.lower()
+            ):
                 # Extract workflow name from "workflow.argoproj.io/<name> created"
                 parts = line.split()
                 if parts:
                     resource = parts[0]
-                    if '/' in resource:
-                        workflow_name = resource.split('/')[-1]
+                    if "/" in resource:
+                        workflow_name = resource.split("/")[-1]
                         return workflow_name
 
         # If we can't parse it, raise an error
@@ -281,13 +340,14 @@ class ScriptRunner:
 
     def _run_config_processor_with_temp_file(self, command: str, config_data: str):
         """Write config to a temp file, run a config-processor command, and return parsed JSON."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as temp_file:
             temp_file.write(config_data)
             temp_file_path = temp_file.name
 
         try:
-            result_str = self.run_config_processor_node_script(
-                command, temp_file_path)
+            result_str = self.run_config_processor_node_script(command, temp_file_path)
             try:
                 return json.loads(result_str)
             except json.JSONDecodeError:
@@ -300,7 +360,9 @@ class ScriptRunner:
                 os.unlink(temp_file_path)
                 logger.debug(f"Cleaned up temporary file: {temp_file_path}")
             except OSError as e:
-                logger.warning(f"Failed to clean up temporary file {temp_file_path}: {e}")
+                logger.warning(
+                    f"Failed to clean up temporary file {temp_file_path}: {e}"
+                )
 
     def get_basic_creds_secrets_in_config(self, config_data: str):
         """Validate config against Zod schema and scrape secrets. Returns combined result."""

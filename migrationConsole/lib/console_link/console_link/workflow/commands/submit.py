@@ -8,7 +8,7 @@ import click
 from ..models.utils import ExitCode
 from ..models.workflow_config_store import WorkflowConfigStore
 from ..services.workflow_service import WorkflowService
-from ..services.script_runner import ScriptRunner
+from ..services.script_runner import ScriptRunner, WorkflowSubmissionError
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +17,12 @@ ENDING_PHASES = ["Succeeded", "Failed", "Error", "Stopped", "Terminated"]
 
 
 def _handle_workflow_wait(
-        service: WorkflowService,
-        namespace: str,
-        workflow_name: str,
-        timeout: int,
-        wait_interval: int):
+    service: WorkflowService,
+    namespace: str,
+    workflow_name: str,
+    timeout: int,
+    wait_interval: int,
+):
     """Handle waiting for workflow completion.
 
     Args:
@@ -38,7 +39,7 @@ def _handle_workflow_wait(
             namespace=namespace,
             workflow_name=workflow_name,
             timeout=timeout,
-            interval=wait_interval
+            interval=wait_interval,
         )
 
         click.echo(f"\nWorkflow completed with phase: {phase}")
@@ -55,32 +56,32 @@ def _handle_workflow_wait(
 
 @click.command(name="submit")
 @click.option(
-    '--namespace',
-    default='ma',
-    help='Kubernetes namespace for the workflow (default: ma)'
+    "--namespace",
+    default="ma",
+    help="Kubernetes namespace for the workflow (default: ma)",
 )
 @click.option(
-    '--wait',
+    "--wait",
     is_flag=True,
     default=False,
-    help='Wait for workflow completion (default: return immediately after submission)'
+    help="Wait for workflow completion (default: return immediately after submission)",
 )
 @click.option(
-    '--timeout',
+    "--timeout",
     default=120,
     type=int,
-    help='Timeout in seconds to wait for workflow completion (only used with --wait, default: 120)'
+    help="Timeout in seconds to wait for workflow completion (only used with --wait, default: 120)",
 )
 @click.option(
-    '--wait-interval',
+    "--wait-interval",
     default=2,
     type=int,
-    help='Interval in seconds between status checks (only used with --wait, default: 2)'
+    help="Interval in seconds between status checks (only used with --wait, default: 2)",
 )
 @click.option(
-    '--session',
-    default='default',
-    help='Configuration session name to load parameters from (default: default)'
+    "--session",
+    default="default",
+    help="Configuration session name to load parameters from (default: default)",
 )
 @click.pass_context
 def submit_command(ctx, namespace, wait, timeout, wait_interval, session):
@@ -105,24 +106,43 @@ def submit_command(ctx, namespace, wait, timeout, wait_interval, session):
     """
     # Check if configuration exists
     store = WorkflowConfigStore(namespace=namespace)
-    config = store.load_config(session_name=session)
+    stored_config = store.load_config(session_name=session)
 
-    if not config or not config.data:
-        click.echo(f"Error: No workflow configuration found for session '{session}'", err=True)
-        click.echo("\nPlease configure the workflow first using 'workflow configure edit'", err=True)
+    if stored_config is None:
+        click.echo(
+            f"Error: No workflow configuration found for session '{session}'", err=True
+        )
+        click.echo(
+            "\nPlease configure the workflow first using 'workflow configure edit'",
+            err=True,
+        )
         ctx.exit(ExitCode.FAILURE.value)
+        return
 
-    click.echo("NOT checking if all secrets have been created.  Run `workflow configure edit` to confirm")
+    if not stored_config.data:
+        click.echo(
+            f"Error: No workflow configuration found for session '{session}'", err=True
+        )
+        click.echo(
+            "\nPlease configure the workflow first using 'workflow configure edit'",
+            err=True,
+        )
+        ctx.exit(ExitCode.FAILURE.value)
+        return
+
+    click.echo(
+        "NOT checking if all secrets have been created.  Run `workflow configure edit` to confirm"
+    )
 
     try:
         # Initialize ScriptRunner
         runner = ScriptRunner()
 
         # Get config data as YAML
-        config_yaml = config.raw_yaml
+        config_yaml = stored_config.raw_yaml
 
         # Get etcd_endpoints from environment variable or use default
-        etcd_endpoints = os.getenv('ETCD_ENDPOINTS')
+        etcd_endpoints = os.getenv("ETCD_ENDPOINTS")
         if not etcd_endpoints:
             etcd_endpoints = f"http://etcd.{namespace}.svc.cluster.local:2379"
 
@@ -133,26 +153,41 @@ def submit_command(ctx, namespace, wait, timeout, wait_interval, session):
         try:
             submit_result = runner.submit_workflow(config_yaml, [])
 
-            workflow_name = submit_result.get('workflow_name', 'unknown')
+            workflow_name = submit_result.get("workflow_name", "unknown")
 
             click.echo("\nWorkflow submitted successfully")
             click.echo(f"  Name: {workflow_name}")
             click.echo(f"  Namespace: {namespace}")
 
-            logger.info(f"Workflow {workflow_name} submitted successfully with namespace {namespace}")
+            logger.info(
+                f"Workflow {workflow_name} submitted successfully with namespace {namespace}"
+            )
 
             # Wait for workflow completion if requested
             if wait:
                 service = WorkflowService()
-                _handle_workflow_wait(service, namespace, workflow_name, timeout, wait_interval)
+                _handle_workflow_wait(
+                    service, namespace, workflow_name, timeout, wait_interval
+                )
 
         except FileNotFoundError as e:
             click.echo(f"Error: {str(e)}", err=True)
-            click.echo("\nEnsure CONFIG_PROCESSOR_DIR is set correctly and contains:", err=True)
+            click.echo(
+                "\nEnsure CONFIG_PROCESSOR_DIR is set correctly and contains:", err=True
+            )
             click.echo("  - createMigrationWorkflowFromUserConfiguration.sh", err=True)
             ctx.exit(ExitCode.FAILURE.value)
-        except subprocess.CalledProcessError:
-            # Error details already printed by script_runner with direct_output=True
+        except WorkflowSubmissionError as e:
+            click.echo(f"Error submitting workflow: {str(e)}", err=True)
+            ctx.exit(ExitCode.FAILURE.value)
+        except subprocess.CalledProcessError as e:
+            click.echo("Error submitting workflow: submission script failed.", err=True)
+            if e.stdout:
+                click.echo(f"stdout: {e.stdout.strip()}", err=True)
+            click.echo(
+                "Review the submission script output above for the root cause and retry once it is fixed.",
+                err=True,
+            )
             ctx.exit(ExitCode.FAILURE.value)
         except Exception as e:
             click.echo(f"Error submitting workflow: {str(e)}", err=True)

@@ -32,14 +32,10 @@ class TestScriptRunner:
         assert "requiresApproval" in sample
         assert "approver" in sample
 
-    @patch('console_link.workflow.services.script_runner.subprocess.run')
-    def test_submit_workflow(self, mock_run):
+    @patch("console_link.workflow.services.script_runner.ScriptRunner.run_script")
+    def test_submit_workflow(self, mock_run_script):
         """Test workflow submission."""
-        # Mock the subprocess call to avoid actual Kubernetes submission
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout='{"workflow_name": "test-workflow-abc", "workflow_uid": "uid-123", "namespace": "ma"}'
-        )
+        mock_run_script.return_value = '{"workflow_name": "test-workflow-abc", "workflow_uid": "uid-123", "namespace": "ma"}'
 
         runner = ScriptRunner()
 
@@ -56,14 +52,10 @@ class TestScriptRunner:
         assert result["workflow_name"].startswith("test-workflow-")
         assert "workflow_uid" in result
 
-    @patch('console_link.workflow.services.script_runner.subprocess.run')
-    def test_submit_workflow_custom_namespace(self, mock_run):
+    @patch("console_link.workflow.services.script_runner.ScriptRunner.run_script")
+    def test_submit_workflow_custom_namespace(self, mock_run_script):
         """Test workflow submission with custom namespace."""
-        # Mock the subprocess call to avoid actual Kubernetes submission
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout='{"workflow_name": "test-workflow-xyz", "workflow_uid": "uid-456", "namespace": "custom-ns"}'
-        )
+        mock_run_script.return_value = '{"workflow_name": "test-workflow-xyz", "workflow_uid": "uid-456", "namespace": "custom-ns"}'
 
         runner = ScriptRunner()
 
@@ -73,11 +65,57 @@ class TestScriptRunner:
   approver: ""
 """
         namespace = "custom-ns"
-        args = [f"--prefix {namespace}", f"--etcd-endpoints http://etcd.{namespace}.svc.cluster.local:2379"]
+        args = [
+            f"--prefix {namespace}",
+            f"--etcd-endpoints http://etcd.{namespace}.svc.cluster.local:2379",
+        ]
         result = runner.submit_workflow(test_config, args)
 
         assert result["namespace"] == namespace
         assert "workflow_name" in result
+
+    @patch("console_link.workflow.services.script_runner.ScriptRunner.run_script")
+    def test_submit_workflow_raises_actionable_error_for_unparseable_output(
+        self, mock_run_script
+    ):
+        """Test workflow submission surfaces actionable parsing failures."""
+        mock_run_script.return_value = (
+            "kubectl applied resources successfully\nnext step: inspect controller logs"
+        )
+
+        runner = ScriptRunner()
+
+        test_config = """parameters:
+  message: "test message"
+  requiresApproval: false
+  approver: ""
+"""
+
+        with pytest.raises(
+            ValueError, match="Submission script returned unexpected output"
+        ):
+            runner.submit_workflow(test_config, [])
+
+    @patch("console_link.workflow.services.script_runner.ScriptRunner.run_script")
+    def test_submit_workflow_parses_json_with_trailing_output(self, mock_run_script):
+        """Test workflow submission parses JSON even when extra output follows."""
+        mock_run_script.return_value = (
+            '{"workflow_name": "test-workflow-abc", "namespace": "ma"}'
+            "\nwarning: using fallback service account"
+        )
+
+        runner = ScriptRunner()
+
+        test_config = """parameters:
+  message: "test message"
+  requiresApproval: false
+  approver: ""
+"""
+
+        result = runner.submit_workflow(test_config, [])
+
+        assert result["workflow_name"] == "test-workflow-abc"
+        assert result["namespace"] == "ma"
 
     def test_script_not_found(self):
         """Test error handling when script doesn't exist."""
@@ -151,7 +189,7 @@ parameters:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             sample_file = temp_path / "generated-sample.yaml"
-            custom_content = "parameters:\n  message: \"from override\"\n"
+            custom_content = 'parameters:\n  message: "from override"\n'
             sample_file.write_text(custom_content)
 
             monkeypatch.setenv("MIGRATION_SAMPLE_CONFIG_PATH", str(sample_file))
